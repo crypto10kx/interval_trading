@@ -45,10 +45,8 @@ venv.bak/
 .coverage
 htmlcov/
 
-# Data files (keep structure but ignore large files)
-data/*.csv
-data/*.json
-!data/.gitkeep
+# Data files - 排除所有数据文件
+data/
 
 # Models
 models/*.pkl
@@ -76,6 +74,15 @@ Thumbs.db
 debug_*.py
 test_single_symbol.py
 run_task_*.py
+
+# 排除测试文件
+tests/
+
+# 排除架构文档
+区间交易系统架构文档.md
+
+# 排除模型文件
+models/
 
 # Additional Python ignores
 *.manifest
