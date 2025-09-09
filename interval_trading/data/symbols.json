@@ -1,0 +1,82 @@
+[
+  {
+    "symbol": "ETH/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 15943657585.54,
+    "base": "ETH",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "BTC/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 15389566418.61,
+    "base": "BTC",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "SOL/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 6244126519.8715,
+    "base": "SOL",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "DOGE/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 2744083041.22049,
+    "base": "DOGE",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "XRP/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 1806111108.9582,
+    "base": "XRP",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "SUI/USDT:USDT",
+    "start_time": 1683129600000,
+    "start_date": "2023-05-03",
+    "volume_24h": 803709931.24386,
+    "base": "SUI",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "1000PEPE/USDT:USDT",
+    "start_time": 1683304200000,
+    "start_date": "2023-05-05",
+    "volume_24h": 743856946.5536112,
+    "base": "1000PEPE",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "ADA/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 690907061.5716,
+    "base": "ADA",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "LINK/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 662962089.26,
+    "base": "LINK",
+    "quote": "USDT"
+  },
+  {
+    "symbol": "AVAX/USDT:USDT",
+    "start_time": 1672506000000,
+    "start_date": "2023-01-01",
+    "volume_24h": 500695390.539,
+    "base": "AVAX",
+    "quote": "USDT"
+  }
+]

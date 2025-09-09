@@ -1,0 +1,2 @@
+# This file ensures the data directory is tracked by git
+# Large data files (*.csv, *.json) are ignored but directory structure is preserved

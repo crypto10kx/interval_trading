@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "interval-trading"
+version = "0.1.0"
+description = "基于Python的加密货币区间交易系统"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+ccxt = "^4.1.0"              # 加密货币交易所API库，用于获取Binance数据
+pandas = "^2.2.0"            # 数据处理和分析库，用于K线数据处理
+numpy = "^1.26.0"            # 数值计算库，用于向量化计算
+scikit-learn = "^1.4.0"      # 机器学习库，用于RandomForest和SMOTE
+scikit-optimize = "^0.9.0"   # 贝叶斯优化库，用于参数优化
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"            # 测试框架
+pytest-cov = "^4.0.0"        # 测试覆盖率
+black = "^24.0.0"             # 代码格式化
+flake8 = "^7.0.0"             # 代码检查
+mypy = "^1.8.0"               # 类型检查
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+# 可执行脚本
+fetch-symbols = "src.data_acquisition:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py313']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
