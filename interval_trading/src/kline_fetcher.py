@@ -160,7 +160,7 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
         current_ts = start_ts
         batch_count = 0
         
-        while current_ts < end_ts:
+        while current_ts <= end_ts:
             retry_count = 0
             batch_success = False
             
@@ -182,7 +182,7 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
                         break
                     
                     # 过滤超出结束时间的数据
-                    filtered_batch = [kline for kline in batch if kline[0] < end_ts]
+                    filtered_batch = [kline for kline in batch if kline[0] <= end_ts]
                     all_data.extend(filtered_batch)
                     
                     # 更新当前时间戳为最后一条K线的时间戳+1

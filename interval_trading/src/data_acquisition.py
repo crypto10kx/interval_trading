@@ -93,8 +93,8 @@ def check_kline_data_availability(exchange: ccxt.Exchange, symbol: str,
         # 尝试获取历史K线数据，从2023年1月开始
         start_2023 = int(datetime.strptime('2023-01-01', '%Y-%m-%d').timestamp() * 1000)
         
-        # 获取2023年1月开始的K线数据
-        historical_klines = exchange.fetch_ohlcv(symbol, '5m', since=start_2023, limit=1500)
+        # 获取2023年1月开始的K线数据（只获取少量数据用于验证）
+        historical_klines = exchange.fetch_ohlcv(symbol, '5m', since=start_2023, limit=10)
         
         if not historical_klines:
             # 如果无法获取历史数据，尝试获取最早的可用数据
