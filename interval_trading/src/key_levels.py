@@ -39,7 +39,7 @@ def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
     return result_df
 
 
-def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
+def filter_key_levels(df: pd.DataFrame, threshold: float = None) -> pd.DataFrame:
     """
     筛选关键价位key_1/key_0（基于对数价格）
     
@@ -48,7 +48,7 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
     
     Args:
         df: 包含high, low, atr, attraction_score列的DataFrame
-        threshold: 吸引力得分阈值，默认0.1
+        threshold: 吸引力得分阈值，如果为None则使用动态阈值（得分中位数的50%）
         
     Returns:
         添加了key_level列的DataFrame
@@ -73,6 +73,17 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
             # 添加对数价格列
             result_df = add_log_prices(df)
         
+        # 计算动态阈值（如果未提供）
+        if threshold is None:
+            attraction_scores = result_df['attraction_score'].dropna()
+            if len(attraction_scores) > 0:
+                median_score = np.median(attraction_scores)
+                threshold = median_score * 0.5  # 得分中位数的50%
+                logger.info(f"使用动态阈值: {threshold:.6f} (基于得分中位数: {median_score:.6f})")
+            else:
+                threshold = 0.01  # 默认阈值
+                logger.warning("无法计算动态阈值，使用默认值: 0.01")
+        
         logger.info(f"开始筛选关键价位，阈值: {threshold}")
         
         # 筛选得分>=threshold的点
@@ -92,31 +103,34 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
             point1_log_high = top_points.iloc[0]['log_high']
             point1_log_low = top_points.iloc[0]['log_low']
             point1_max_log_price = max(point1_log_high, point1_log_low)
+            point1_min_log_price = min(point1_log_high, point1_log_low)
             
             point2_log_high = top_points.iloc[1]['log_high']
             point2_log_low = top_points.iloc[1]['log_low']
             point2_max_log_price = max(point2_log_high, point2_log_low)
+            point2_min_log_price = min(point2_log_high, point2_log_low)
             
+            # 选择最高的作为key_1，最低的作为key_0
             if point1_max_log_price >= point2_max_log_price:
                 key_1_idx = top_points.iloc[0].name
-                key_0_idx = top_points.iloc[1].name
+                key_1_log_price = point1_max_log_price
             else:
                 key_1_idx = top_points.iloc[1].name
+                key_1_log_price = point2_max_log_price
+            
+            if point1_min_log_price <= point2_min_log_price:
                 key_0_idx = top_points.iloc[0].name
+                key_0_log_price = point1_min_log_price
+            else:
+                key_0_idx = top_points.iloc[1].name
+                key_0_log_price = point2_min_log_price
         else:
             # 只有一个点，无法确定关键价位
             logger.warning("只有一个符合条件的点，无法确定关键价位")
             result_df['key_level'] = pd.Series(dtype='object')
             return result_df
         
-        # 获取key_1和key_0的对数价格
-        key_1_log_high = result_df.loc[key_1_idx, 'log_high']
-        key_1_log_low = result_df.loc[key_1_idx, 'log_low']
-        key_1_log_price = max(key_1_log_high, key_1_log_low)
-        
-        key_0_log_high = result_df.loc[key_0_idx, 'log_high']
-        key_0_log_low = result_df.loc[key_0_idx, 'log_low']
-        key_0_log_price = max(key_0_log_high, key_0_log_low)
+        # key_1_log_price和key_0_log_price已在上面计算
         
         # 获取最后一根K线的ATR进行验证（基于对数价格）
         last_atr = result_df['atr'].iloc[-1]
