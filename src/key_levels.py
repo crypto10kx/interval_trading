@@ -94,83 +94,145 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = None) -> pd.DataFrame
             result_df['key_level'] = pd.Series(dtype='object')
             return result_df
         
-        # 按得分降序排序，取前两个
-        top_points = qualified_points.nlargest(2, 'attraction_score')
+        # 从所有数据中筛选得分最高的两个点
+        # 创建包含high和low的候选点列表
+        candidates = []
+        for idx, row in qualified_points.iterrows():
+            # 添加high点
+            candidates.append({
+                'idx': idx,
+                'log_price': row['log_high'],
+                'price': np.exp(row['log_high']),
+                'score': row['attraction_score'],
+                'type': 'high'
+            })
+            # 添加low点
+            candidates.append({
+                'idx': idx,
+                'log_price': row['log_low'],
+                'price': np.exp(row['log_low']),
+                'score': row['attraction_score'],
+                'type': 'low'
+            })
         
-        # 确定key_1和key_0（基于对数价格）
-        if len(top_points) == 2:
-            # 比较对数价格确定key_1（较高）和key_0（较低）
-            point1_log_high = top_points.iloc[0]['log_high']
-            point1_log_low = top_points.iloc[0]['log_low']
-            point1_max_log_price = max(point1_log_high, point1_log_low)
-            point1_min_log_price = min(point1_log_high, point1_log_low)
-            
-            point2_log_high = top_points.iloc[1]['log_high']
-            point2_log_low = top_points.iloc[1]['log_low']
-            point2_max_log_price = max(point2_log_high, point2_log_low)
-            point2_min_log_price = min(point2_log_high, point2_log_low)
-            
-            # 选择最高的作为key_1，最低的作为key_0
-            if point1_max_log_price >= point2_max_log_price:
-                key_1_idx = top_points.iloc[0].name
-                key_1_log_price = point1_max_log_price
-            else:
-                key_1_idx = top_points.iloc[1].name
-                key_1_log_price = point2_max_log_price
-            
-            if point1_min_log_price <= point2_min_log_price:
-                key_0_idx = top_points.iloc[0].name
-                key_0_log_price = point1_min_log_price
-            else:
-                key_0_idx = top_points.iloc[1].name
-                key_0_log_price = point2_min_log_price
-        else:
-            # 只有一个点，无法确定关键价位
-            logger.warning("只有一个符合条件的点，无法确定关键价位")
+        if len(candidates) < 2:
+            logger.warning(f"符合条件的点数量不足（{len(candidates)} < 2），无法确定关键价位")
             result_df['key_level'] = pd.Series(dtype='object')
             return result_df
         
-        # key_1_log_price和key_0_log_price已在上面计算
+        # 两阶段筛选算法
+        # 第一阶段：选择得分最高且高于阈值的点作为第一个候选关键价位
+        candidates.sort(key=lambda x: x['score'], reverse=True)
         
-        # 获取最后一根K线的ATR进行验证（基于对数价格）
+        # 找到第一个符合条件的点
+        first_candidate = None
+        for candidate in candidates:
+            if candidate['score'] >= threshold:
+                first_candidate = candidate
+                break
+        
+        if first_candidate is None:
+            logger.warning("没有找到得分高于阈值的候选点")
+            result_df['key_level'] = pd.Series(dtype='object')
+            return result_df
+        
+        # 获取ATR用于区间排除
         last_atr = result_df['atr'].iloc[-1]
         
-        # 验证(key_1-key_0)>ATR（在对数空间中）
-        log_price_diff = key_1_log_price - key_0_log_price
+        # 区间排除：排除掉在区间[候选关键价位-ATR, 候选关键价位+ATR]内的所有候选点
+        first_price = first_candidate['price']
+        excluded_candidates = []
+        remaining_candidates = []
         
-        if log_price_diff > last_atr:
-            # 验证通过，设置关键价位
+        for candidate in candidates:
+            if candidate['idx'] == first_candidate['idx']:
+                # 跳过第一个候选点本身
+                continue
+            
+            # 检查是否在排除区间内
+            if abs(candidate['price'] - first_price) <= last_atr:
+                excluded_candidates.append(candidate)
+            else:
+                remaining_candidates.append(candidate)
+        
+        logger.info(f"第一阶段筛选: 选择得分 {first_candidate['score']:.6f} 的点作为第一个候选关键价位")
+        logger.info(f"区间排除: 排除 {len(excluded_candidates)} 个候选点，剩余 {len(remaining_candidates)} 个候选点")
+        
+        # 第二阶段：从区间外的剩余候选点中选择得分最高且高于阈值的点
+        if len(remaining_candidates) == 0:
+            logger.warning("区间排除后没有剩余候选点，无法确定第二个关键价位")
             result_df['key_level'] = pd.Series(dtype='object')
+            return result_df
+        
+        # 从剩余候选点中选择得分最高的点
+        remaining_candidates.sort(key=lambda x: x['score'], reverse=True)
+        second_candidate = remaining_candidates[0]
+        
+        if second_candidate['score'] < threshold:
+            logger.warning(f"第二个候选点得分 {second_candidate['score']:.6f} 低于阈值 {threshold}")
+            result_df['key_level'] = pd.Series(dtype='object')
+            return result_df
+        
+        logger.info(f"第二阶段筛选: 选择得分 {second_candidate['score']:.6f} 的点作为第二个候选关键价位")
+        
+        # 确定key_1和key_0（基于价格）
+        if first_candidate['price'] >= second_candidate['price']:
+            key_1_idx = first_candidate['idx']
+            key_1_log_price = first_candidate['log_price']
+            key_1_price = first_candidate['price']
+            key_0_idx = second_candidate['idx']
+            key_0_log_price = second_candidate['log_price']
+            key_0_price = second_candidate['price']
+        else:
+            key_1_idx = second_candidate['idx']
+            key_1_log_price = second_candidate['log_price']
+            key_1_price = second_candidate['price']
+            key_0_idx = first_candidate['idx']
+            key_0_log_price = first_candidate['log_price']
+            key_0_price = first_candidate['price']
+        
+        # 两阶段筛选算法确保key_1和key_0必然满足距离条件，无需额外验证
+        # 直接设置关键价位
+        result_df['key_level'] = pd.Series(dtype='object')
+        
+        # 如果key_1和key_0来自同一根K线，需要特殊处理
+        if key_1_idx == key_0_idx:
+            # 同一根K线，标记为key_1_key_0
+            result_df.loc[key_1_idx, 'key_level'] = 'key_1_key_0'
+        else:
+            # 不同K线，分别标记
             result_df.loc[key_1_idx, 'key_level'] = 'key_1'
             result_df.loc[key_0_idx, 'key_level'] = 'key_0'
-            
-            # 添加log_key_1和log_key_0列
-            result_df['log_key_1'] = np.nan
-            result_df['log_key_0'] = np.nan
-            result_df.loc[key_1_idx, 'log_key_1'] = key_1_log_price
-            result_df.loc[key_0_idx, 'log_key_0'] = key_0_log_price
-            
-            # 转换回真实价格用于日志显示
-            key_1_price = np.exp(key_1_log_price)
-            key_0_price = np.exp(key_0_log_price)
-            price_diff = key_1_price - key_0_price
-            
-            logger.info(f"关键价位筛选成功:")
-            logger.info(f"- key_1: 价格 {key_1_price:.6f}, 得分 {result_df.loc[key_1_idx, 'attraction_score']:.6f}")
-            logger.info(f"- key_0: 价格 {key_0_price:.6f}, 得分 {result_df.loc[key_0_idx, 'attraction_score']:.6f}")
-            logger.info(f"- 价格差: {price_diff:.6f} > ATR: {last_atr:.6f}")
-        else:
-            logger.warning(f"价格差验证失败: {log_price_diff:.6f} <= ATR: {last_atr:.6f}")
-            result_df['key_level'] = pd.Series(dtype='object')
-            result_df['log_key_1'] = np.nan
-            result_df['log_key_0'] = np.nan
+        
+        # 添加log_key_1和log_key_0列
+        result_df['log_key_1'] = np.nan
+        result_df['log_key_0'] = np.nan
+        result_df.loc[key_1_idx, 'log_key_1'] = key_1_log_price
+        result_df.loc[key_0_idx, 'log_key_0'] = key_0_log_price
+        
+        # 计算价格差用于日志记录
+        price_diff = key_1_price - key_0_price
+        last_atr = result_df['atr'].iloc[-1]
+        
+        logger.info(f"关键价位筛选成功:")
+        logger.info(f"- key_1: 价格 {key_1_price:.6f}, 得分 {result_df.loc[key_1_idx, 'attraction_score']:.6f}")
+        logger.info(f"- key_0: 价格 {key_0_price:.6f}, 得分 {result_df.loc[key_0_idx, 'attraction_score']:.6f}")
+        logger.info(f"- 价格差: {price_diff:.2f} > ATR: {last_atr:.2f} (两阶段筛选保证)")
         
         # 统计信息
         key_levels = result_df['key_level'].dropna()
+        # 计算range数量：key_1_key_0算作1个range，key_1+key_0算作1个range
+        range_count = 0
+        if 'key_1_key_0' in key_levels.values:
+            range_count = 1
+        else:
+            range_count = len(key_levels[key_levels.isin(['key_1', 'key_0'])]) // 2
+        
         logger.info(f"关键价位筛选完成:")
         logger.info(f"- 数据点总数: {len(result_df)}")
         logger.info(f"- 符合阈值点数: {len(qualified_points)}")
         logger.info(f"- 关键价位数量: {len(key_levels)}")
+        logger.info(f"- Range数量: {range_count}")
         
         return result_df
         

@@ -42,24 +42,36 @@ def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_tr(df: pd.DataFrame) -> pd.Series:
     """
-    计算True Range (TR) - 基于对数价格
+    计算True Range (TR) - 基于真实价格
     
-    TR = max(log_high-log_low, |log_high-log_close_prev|, |log_low-log_close_prev|)
+    TR = max(high-low, |high-close_prev|, |low-close_prev|)
     
     Args:
-        df: 包含log_high, log_low, log_close列的DataFrame
+        df: 包含high, low, close或log_high, log_low, log_close列的DataFrame
         
     Returns:
         包含TR值的Series
     """
     try:
-        # 计算前一日收盘价（对数）
-        log_close_prev = df['log_close'].shift(1)
-        
-        # 计算三个TR组成部分（在对数空间中）
-        hl = df['log_high'] - df['log_low']  # 最高价 - 最低价
-        hc = abs(df['log_high'] - log_close_prev)  # |最高价 - 前收盘价|
-        lc = abs(df['log_low'] - log_close_prev)   # |最低价 - 前收盘价|
+        # 检查是否有真实价格列
+        if 'high' in df.columns and 'low' in df.columns and 'close' in df.columns:
+            # 使用真实价格
+            close_prev = df['close'].shift(1)
+            hl = df['high'] - df['low']
+            hc = abs(df['high'] - close_prev)
+            lc = abs(df['low'] - close_prev)
+        elif 'log_high' in df.columns and 'log_low' in df.columns and 'log_close' in df.columns:
+            # 从对数价格计算真实价格
+            high = np.exp(df['log_high'])
+            low = np.exp(df['log_low'])
+            close = np.exp(df['log_close'])
+            close_prev = close.shift(1)
+            
+            hl = high - low
+            hc = abs(high - close_prev)
+            lc = abs(low - close_prev)
+        else:
+            raise ValueError("缺少必要列: 需要high, low, close或log_high, log_low, log_close")
         
         # 取三者最大值作为TR
         tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
@@ -74,7 +86,7 @@ def calculate_tr(df: pd.DataFrame) -> pd.Series:
 
 def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
     """
-    计算ATR (Average True Range) - 基于对数价格
+    计算ATR (Average True Range) - 基于真实价格
     
     ATR = TR的period周期移动平均
     
@@ -94,22 +106,19 @@ def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
             logger.warning(f"数据长度({len(df)})小于ATR周期({period})，将使用可用数据计算")
             period = len(df)
         
-        # 检查必要列（优先使用对数价格列）
-        if 'log_high' in df.columns and 'log_low' in df.columns and 'log_close' in df.columns:
-            # 如果已有对数价格列，直接使用
-            result_df = df.copy()
-            logger.info("使用现有的对数价格列计算ATR")
+        # 检查必要列
+        if 'high' in df.columns and 'low' in df.columns and 'close' in df.columns:
+            # 使用真实价格列
+            pass
+        elif 'log_high' in df.columns and 'log_low' in df.columns and 'log_close' in df.columns:
+            # 使用对数价格列
+            pass
         else:
-            # 检查原始价格列
-            required_columns = ['high', 'low', 'close']
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                raise ValueError(f"缺少必要列: {missing_columns}")
-            
-            # 添加对数价格列
-            result_df = add_log_prices(df)
+            raise ValueError("缺少必要列: 需要high, low, close或log_high, log_low, log_close")
         
-        # 计算TR（基于对数价格）
+        result_df = df.copy()
+        
+        # 计算TR（基于真实价格）
         logger.info(f"开始计算TR，数据点数量: {len(result_df)}")
         tr = calculate_tr(result_df)
         
@@ -125,8 +134,8 @@ def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
         logger.info(f"ATR计算完成:")
         logger.info(f"- 数据点总数: {len(result_df)}")
         logger.info(f"- 有效ATR值: {valid_atr_count}")
-        logger.info(f"- ATR范围: {atr.min():.6f} - {atr.max():.6f}")
-        logger.info(f"- 平均ATR: {atr.mean():.6f}")
+        logger.info(f"- ATR范围: {atr.min():.2f} - {atr.max():.2f}")
+        logger.info(f"- 平均ATR: {atr.mean():.2f}")
         
         return result_df
         

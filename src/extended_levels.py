@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_extended_levels(df: pd.DataFrame, 
-                            key_1_col: str = 'key_1', 
-                            key_0_col: str = 'key_0') -> pd.DataFrame:
+                            key_1_col: str = 'log_key_1', 
+                            key_0_col: str = 'log_key_0') -> pd.DataFrame:
     """
     计算扩展价位（基于对数空间的自定义斐波那契比例）
     
@@ -63,26 +63,45 @@ def calculate_extended_levels(df: pd.DataFrame,
     # 创建结果DataFrame的副本
     result_df = df.copy()
     
-    # 获取key_1和key_0列（应该是对数价格）
-    key_1 = df[key_1_col]
-    key_0 = df[key_0_col]
+    # 找到有key_1和key_0值的行
+    key_1_mask = df[key_1_col].notna()
+    key_0_mask = df[key_0_col].notna()
+    
+    if not key_1_mask.any() or not key_0_mask.any():
+        logger.warning("没有找到有效的key_1或key_0值")
+        # 添加空的扩展价位列
+        result_df['level_-2'] = np.nan
+        result_df['level_-1'] = np.nan
+        result_df['level_2'] = np.nan
+        result_df['level_3'] = np.nan
+        return result_df
+    
+    # 获取key_1和key_0的值（只取第一个有效值）
+    key_1_value = df[key_1_col][key_1_mask].iloc[0]
+    key_0_value = df[key_0_col][key_0_mask].iloc[0]
     
     # 计算对数价格差 (key_1 - key_0)
-    log_price_diff = key_1 - key_0
+    log_price_diff = key_1_value - key_0_value
     
     # 计算扩展价位（在对数空间中，使用自定义斐波那契比例）
     # 以log_key_0为基准，使用自定义斐波那契比例
     # level_-2 = log_key_0 + (log_key_1 - log_key_0) * -2
-    result_df['level_-2'] = key_0 + log_price_diff * -2
+    level_minus_2 = key_0_value + log_price_diff * -2
     
     # level_-1 = log_key_0 + (log_key_1 - log_key_0) * -1
-    result_df['level_-1'] = key_0 + log_price_diff * -1
+    level_minus_1 = key_0_value + log_price_diff * -1
     
     # level_2 = log_key_0 + (log_key_1 - log_key_0) * 2
-    result_df['level_2'] = key_0 + log_price_diff * 2
+    level_2 = key_0_value + log_price_diff * 2
     
     # level_3 = log_key_0 + (log_key_1 - log_key_0) * 3
-    result_df['level_3'] = key_0 + log_price_diff * 3
+    level_3 = key_0_value + log_price_diff * 3
+    
+    # 将扩展价位添加到所有行
+    result_df['level_-2'] = level_minus_2
+    result_df['level_-1'] = level_minus_1
+    result_df['level_2'] = level_2
+    result_df['level_3'] = level_3
     
     # 统计有效扩展价位数量
     valid_levels = result_df[['level_-2', 'level_-1', 'level_2', 'level_3']].notna().sum()
