@@ -134,16 +134,78 @@ def _calculate_attraction_scores_vectorized(high: np.ndarray, low: np.ndarray,
     # 处理ATR为0或NaN的情况
     atr_safe = np.where(np.isnan(atr) | (atr == 0), 1.0, atr)
     
-    # 计算high和low点的吸引力得分
-    high_scores = _calculate_attraction_scores_fully_vectorized(
+    # 计算high和low点的吸引力得分（使用广播方法）
+    high_scores = _calculate_attraction_scores_broadcast(
         high, high, low, atr_safe, w, band_width
     )
-    low_scores = _calculate_attraction_scores_fully_vectorized(
+    low_scores = _calculate_attraction_scores_broadcast(
         low, high, low, atr_safe, w, band_width
     )
     
     # 同一K线只计最高得分（high/low择一）
     scores = np.maximum(high_scores, low_scores)
+    
+    return scores
+
+
+def _calculate_attraction_scores_broadcast(target_prices: np.ndarray, 
+                                          all_high: np.ndarray, 
+                                          all_low: np.ndarray, 
+                                          all_atr: np.ndarray, 
+                                          w: int, 
+                                          band_width: float) -> np.ndarray:
+    """
+    使用NumPy广播完全向量化计算吸引力得分
+    
+    使用NumPy广播加速计算：
+    1. 完全向量化，无for循环
+    2. 使用广播计算所有价格点之间的距离
+    3. 使用向量化条件判断和计算
+    
+    Args:
+        target_prices: 目标价格数组
+        all_high: 所有最高价数组
+        all_low: 所有最低价数组
+        all_atr: 所有ATR数组
+        w: 窗口大小
+        band_width: 带宽系数
+        
+    Returns:
+        吸引力得分数组
+    """
+    n = len(target_prices)
+    scores = np.zeros(n)
+    
+    # 处理ATR为0或NaN的情况
+    atr_safe = np.where(np.isnan(all_atr) | (all_atr == 0), 1.0, all_atr)
+    
+    # 创建所有候选价格点（high和low）
+    all_candidates = np.concatenate([all_high, all_low])
+    
+    # 使用广播计算距离矩阵
+    # shape: (n, 2*n) - 每个目标价格对所有候选价格的距离
+    dist_matrix = np.abs(target_prices[:, np.newaxis] - all_candidates)
+    
+    # 计算ATR矩阵（对应每个候选价格）
+    atr_matrix = np.concatenate([atr_safe, atr_safe])
+    
+    # 计算带宽矩阵
+    bandwidth_matrix = band_width * atr_matrix
+    
+    # 创建掩码：距离在带宽内的点
+    mask = dist_matrix <= bandwidth_matrix
+    
+    # 计算权重：exp(-距离/ATR)
+    weights = np.exp(-dist_matrix / atr_matrix)
+    
+    # 应用掩码
+    masked_weights = weights * mask
+    
+    # 计算得分：每行（每个目标价格）的权重和
+    scores = np.sum(masked_weights, axis=1) / w
+    
+    # 确保得分在[0,1]范围内
+    scores = np.clip(scores, 0, 1)
     
     return scores
 

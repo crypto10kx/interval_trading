@@ -26,13 +26,14 @@ def calculate_extended_levels(df: pd.DataFrame,
                             key_1_col: str = 'key_1', 
                             key_0_col: str = 'key_0') -> pd.DataFrame:
     """
-    计算扩展价位（基于对数空间的斐波那契比例）
+    计算扩展价位（基于对数空间的自定义斐波那契比例）
     
-    基于key_1和key_0计算4个扩展价位（在对数空间中）：
-    - level_-2: key_0 - 2*(key_1 - key_0)  # 向下扩展2倍
-    - level_-1: key_0 - (key_1 - key_0)    # 向下扩展1倍  
-    - level_2: key_1 + (key_1 - key_0)     # 向上扩展1倍
-    - level_3: key_1 + 2*(key_1 - key_0)   # 向上扩展2倍
+    基于log_key_1和log_key_0计算4个扩展价位（在对数空间中）：
+    使用log_key_0作为基准，自定义斐波那契比例：
+    - level_-2: log_key_0 + (log_key_1 - log_key_0) * -2  # 向下扩展2倍
+    - level_-1: log_key_0 + (log_key_1 - log_key_0) * -1  # 向下扩展1倍  
+    - level_2: log_key_0 + (log_key_1 - log_key_0) * 2    # 向上扩展2倍
+    - level_3: log_key_0 + (log_key_1 - log_key_0) * 3    # 向上扩展3倍
     
     Args:
         df: 包含key_1和key_0列的DataFrame
@@ -69,18 +70,19 @@ def calculate_extended_levels(df: pd.DataFrame,
     # 计算对数价格差 (key_1 - key_0)
     log_price_diff = key_1 - key_0
     
-    # 计算扩展价位（在对数空间中，向量化操作）
-    # level_-2 = key_0 - 2*(key_1 - key_0)
-    result_df['level_-2'] = key_0 - 2 * log_price_diff
+    # 计算扩展价位（在对数空间中，使用自定义斐波那契比例）
+    # 以log_key_0为基准，使用自定义斐波那契比例
+    # level_-2 = log_key_0 + (log_key_1 - log_key_0) * -2
+    result_df['level_-2'] = key_0 + log_price_diff * -2
     
-    # level_-1 = key_0 - (key_1 - key_0)  
-    result_df['level_-1'] = key_0 - log_price_diff
+    # level_-1 = log_key_0 + (log_key_1 - log_key_0) * -1
+    result_df['level_-1'] = key_0 + log_price_diff * -1
     
-    # level_2 = key_1 + (key_1 - key_0)
-    result_df['level_2'] = key_1 + log_price_diff
+    # level_2 = log_key_0 + (log_key_1 - log_key_0) * 2
+    result_df['level_2'] = key_0 + log_price_diff * 2
     
-    # level_3 = key_1 + 2*(key_1 - key_0)
-    result_df['level_3'] = key_1 + 2 * log_price_diff
+    # level_3 = log_key_0 + (log_key_1 - log_key_0) * 3
+    result_df['level_3'] = key_0 + log_price_diff * 3
     
     # 统计有效扩展价位数量
     valid_levels = result_df[['level_-2', 'level_-1', 'level_2', 'level_3']].notna().sum()

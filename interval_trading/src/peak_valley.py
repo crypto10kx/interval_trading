@@ -81,10 +81,14 @@ def identify_high_low_points(df: pd.DataFrame, g: int = 3) -> pd.DataFrame:
         high_max_values = high_rolling_max.max()
         
         # 标记高点：当前高点等于窗口内最大值，且不是边界值
+        # 确保索引在有效范围内（避免边界问题）
+        valid_indices = (result_df.index >= g) & (result_df.index < len(result_df) - g)
+        
         is_high_condition = (
             (result_df['log_high'] == high_max_values) &  # 当前高点等于窗口最大值
             (result_df['log_high'] > result_df['log_high'].shift(g)) &  # 高于前g根K线
-            (result_df['log_high'] > result_df['log_high'].shift(-g))   # 高于后g根K线
+            (result_df['log_high'] > result_df['log_high'].shift(-g)) &  # 高于后g根K线
+            valid_indices  # 确保在有效范围内
         )
         
         # 使用rolling窗口识别低点（基于对数价格）
@@ -96,7 +100,8 @@ def identify_high_low_points(df: pd.DataFrame, g: int = 3) -> pd.DataFrame:
         is_low_condition = (
             (result_df['log_low'] == low_min_values) &  # 当前低点等于窗口最小值
             (result_df['log_low'] < result_df['log_low'].shift(g)) &  # 低于前g根K线
-            (result_df['log_low'] < result_df['log_low'].shift(-g))   # 低于后g根K线
+            (result_df['log_low'] < result_df['log_low'].shift(-g)) &  # 低于后g根K线
+            valid_indices  # 确保在有效范围内
         )
         
         # 应用条件标记
