@@ -18,6 +18,76 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def validate_kline_data_integrity(df: pd.DataFrame, start_date: str, end_date: str) -> bool:
+    """
+    验证K线数据的完整性
+    
+    Args:
+        df: K线数据DataFrame
+        start_date: 期望开始日期
+        end_date: 期望结束日期
+        
+    Returns:
+        数据是否完整
+    """
+    try:
+        if df.empty:
+            logger.error("数据为空")
+            return False
+        
+        # 检查时间范围
+        start_expected = pd.to_datetime(start_date)
+        end_expected = pd.to_datetime(end_date)
+        
+        actual_start = df['timestamp'].min()
+        actual_end = df['timestamp'].max()
+        
+        # 允许1天的时间偏差（考虑到API限制）
+        time_tolerance = pd.Timedelta(days=1)
+        
+        if actual_start > start_expected + time_tolerance:
+            logger.warning(f"实际开始时间({actual_start})晚于期望时间({start_expected})")
+            return False
+        
+        if actual_end < end_expected - time_tolerance:
+            logger.warning(f"实际结束时间({actual_end})早于期望时间({end_expected})")
+            return False
+        
+        # 检查数据量是否合理（2年约20万条5分钟K线）
+        expected_min_records = 200000  # 约2年数据
+        if len(df) < expected_min_records * 0.8:  # 允许20%的缺失
+            logger.warning(f"数据量不足，期望至少{expected_min_records}条，实际{len(df)}条")
+            return False
+        
+        # 检查价格数据合理性
+        if (df['high'] < df['low']).any():
+            logger.error("存在high < low的数据")
+            return False
+        
+        if (df[['open', 'high', 'low', 'close', 'volume']] <= 0).any().any():
+            logger.error("存在非正数的价格或成交量数据")
+            return False
+        
+        # 检查时间间隔（5分钟K线应该间隔5分钟）
+        time_diffs = df['timestamp'].diff().dropna()
+        expected_interval = pd.Timedelta(minutes=5)
+        tolerance = pd.Timedelta(minutes=1)  # 允许1分钟偏差
+        
+        irregular_intervals = time_diffs[(time_diffs < expected_interval - tolerance) | 
+                                       (time_diffs > expected_interval + tolerance)]
+        
+        if len(irregular_intervals) > len(df) * 0.05:  # 允许5%的不规则间隔
+            logger.warning(f"发现{len(irregular_intervals)}个不规则时间间隔")
+            return False
+        
+        logger.info("数据完整性检查通过")
+        return True
+        
+    except Exception as e:
+        logger.error(f"数据完整性检查失败: {e}")
+        return False
+
+
 def fetch_kline_data(symbol: str, start_date: str, end_date: str, 
                     timeframe: str = '5m', batch_size: int = 1500, 
                     request_interval: float = 0.05, max_retries: int = 3) -> pd.DataFrame:
@@ -120,6 +190,10 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
         
         # 按时间排序并去重
         df = df.sort_values('timestamp').drop_duplicates(subset=['timestamp']).reset_index(drop=True)
+        
+        # 数据完整性检查
+        if not validate_kline_data_integrity(df, start_date, end_date):
+            logger.warning(f"{symbol} 数据完整性检查失败，但继续处理")
         
         logger.info(f"{symbol} K线数据拉取完成: {len(df)} 条记录")
         logger.info(f"时间范围: {df['timestamp'].min()} 到 {df['timestamp'].max()}")
