@@ -65,22 +65,28 @@ def calculate_attraction_score(df: pd.DataFrame, w: int = 120,
             logger.warning(f"数据长度({len(df)})小于窗口大小({w})，将使用可用数据计算")
             w = len(df)
         
-        # 检查必要列
-        required_columns = ['high', 'low', 'atr']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise ValueError(f"缺少必要列: {missing_columns}")
-        
-        # 添加对数价格列
-        result_df = add_log_prices(df)
+        # 检查必要列（优先使用对数价格列）
+        if 'log_high' in df.columns and 'log_low' in df.columns and 'atr' in df.columns:
+            # 如果已有对数价格列，直接使用
+            result_df = df.copy()
+            logger.info("使用现有的对数价格列计算吸引力得分")
+        else:
+            # 检查原始价格列
+            required_columns = ['high', 'low', 'atr']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise ValueError(f"缺少必要列: {missing_columns}")
+            
+            # 添加对数价格列
+            result_df = add_log_prices(df)
         
         logger.info(f"开始计算吸引力得分，窗口大小: {w}, 带宽系数: {band_width}")
         
         # 初始化吸引力得分列
         result_df['attraction_score'] = 0.0
         
-        # 使用向量化方法计算吸引力得分（基于对数价格）
-        attraction_scores = _calculate_attraction_scores_vectorized(
+        # 使用优化的向量化方法计算吸引力得分（基于对数价格）
+        attraction_scores = _calculate_attraction_scores_optimized(
             result_df['log_high'].values, 
             result_df['log_low'].values, 
             result_df['atr'].values, 
@@ -105,16 +111,19 @@ def calculate_attraction_score(df: pd.DataFrame, w: int = 120,
         raise
 
 
-def _calculate_attraction_scores_vectorized(high: np.ndarray, low: np.ndarray, 
-                                          atr: np.ndarray, w: int, 
-                                          band_width: float) -> np.ndarray:
+def _calculate_attraction_scores_optimized(high: np.ndarray, low: np.ndarray, 
+                                         atr: np.ndarray, w: int, 
+                                         band_width: float) -> np.ndarray:
     """
-    完全向量化计算吸引力得分
+    优化的吸引力得分计算算法
+    
+    使用滑动窗口和向量化操作，避免创建大型距离矩阵
+    算法复杂度：O(n×w)，其中w是固定窗口大小
     
     算法逻辑：
-    1. 对于w根K线的每个价格点（high或low），计算其吸引力得分
+    1. 对于每个K线，使用滑动窗口计算其吸引力得分
     2. 每个点的价格区间：[price - band_width*ATR, price + band_width*ATR]
-    3. 统计剩余的w-1根K线的2w-2个价格点中，有多少个落在这个区间内
+    3. 统计窗口内剩余K线的高低点中，有多少个落在这个区间内
     4. 对于每个落在区间内的价格点，计算得分：exp(-|price-target_price|/ATR)
     5. 每个K线只计一次最高得分（high/low择一）
     6. 最终得分 = 所有得分总和 / w
@@ -130,20 +139,70 @@ def _calculate_attraction_scores_vectorized(high: np.ndarray, low: np.ndarray,
         吸引力得分数组
     """
     n = len(high)
+    scores = np.zeros(n)
     
     # 处理ATR为0或NaN的情况
     atr_safe = np.where(np.isnan(atr) | (atr == 0), 1.0, atr)
     
-    # 计算high和low点的吸引力得分（使用广播方法）
-    high_scores = _calculate_attraction_scores_broadcast(
-        high, high, low, atr_safe, w, band_width
-    )
-    low_scores = _calculate_attraction_scores_broadcast(
-        low, high, low, atr_safe, w, band_width
-    )
-    
-    # 同一K线只计最高得分（high/low择一）
-    scores = np.maximum(high_scores, low_scores)
+    for i in range(n):
+        # 计算窗口范围
+        start_idx = max(0, i - w + 1)
+        end_idx = i + 1
+        window_size = end_idx - start_idx
+        
+        if window_size < 2:
+            scores[i] = 0.0
+            continue
+        
+        # 获取窗口数据
+        window_high = high[start_idx:end_idx]
+        window_low = low[start_idx:end_idx]
+        window_atr = atr_safe[start_idx:end_idx]
+        
+        # 当前目标价格和ATR
+        target_price = high[i] if i < len(high) else low[i]
+        target_atr = atr_safe[i]
+        
+        # 计算价格区间
+        bandwidth = band_width * target_atr
+        lower_bound = target_price - bandwidth
+        upper_bound = target_price + bandwidth
+        
+        # 创建掩码：排除当前K线
+        mask = np.ones(window_size, dtype=bool)
+        current_relative_idx = i - start_idx
+        if 0 <= current_relative_idx < window_size:
+            mask[current_relative_idx] = False
+        
+        # 应用掩码
+        window_high_masked = window_high[mask]
+        window_low_masked = window_low[mask]
+        window_atr_masked = window_atr[mask]
+        
+        if len(window_high_masked) == 0:
+            scores[i] = 0.0
+            continue
+        
+        # 计算high点的得分
+        high_in_range = (window_high_masked >= lower_bound) & (window_high_masked <= upper_bound)
+        high_distances = np.abs(window_high_masked - target_price)
+        high_scores = np.where(high_in_range, 
+                              np.exp(-high_distances / window_atr_masked), 
+                              0.0)
+        
+        # 计算low点的得分
+        low_in_range = (window_low_masked >= lower_bound) & (window_low_masked <= upper_bound)
+        low_distances = np.abs(window_low_masked - target_price)
+        low_scores = np.where(low_in_range, 
+                             np.exp(-low_distances / window_atr_masked), 
+                             0.0)
+        
+        # 每根K线只计最高得分
+        kline_scores = np.maximum(high_scores, low_scores)
+        
+        # 计算总得分
+        total_score = np.sum(kline_scores)
+        scores[i] = total_score / w
     
     return scores
 

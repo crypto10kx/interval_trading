@@ -58,14 +58,20 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
         if df.empty:
             raise ValueError("输入DataFrame为空")
         
-        # 检查必要列
-        required_columns = ['high', 'low', 'atr', 'attraction_score']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise ValueError(f"缺少必要列: {missing_columns}")
-        
-        # 添加对数价格列
-        result_df = add_log_prices(df)
+        # 检查必要列（优先使用对数价格列）
+        if 'log_high' in df.columns and 'log_low' in df.columns and 'atr' in df.columns and 'attraction_score' in df.columns:
+            # 如果已有对数价格列，直接使用
+            result_df = df.copy()
+            logger.info("使用现有的对数价格列筛选关键价位")
+        else:
+            # 检查原始价格列
+            required_columns = ['high', 'low', 'atr', 'attraction_score']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise ValueError(f"缺少必要列: {missing_columns}")
+            
+            # 添加对数价格列
+            result_df = add_log_prices(df)
         
         logger.info(f"开始筛选关键价位，阈值: {threshold}")
         

@@ -252,7 +252,7 @@ def deduplicate_peaks_valleys(df: pd.DataFrame) -> pd.DataFrame:
         
         if high_points.empty and low_points.empty:
             logger.warning("没有找到任何HL点")
-            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak'])
+            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak', 'is_high', 'is_low', 'log_high', 'log_low', 'log_open', 'log_close', 'volume_zscore'])
         
         # 为高点添加标记（使用对数价格）
         high_points['is_peak'] = 1  # 1表示峰（高点）
@@ -262,10 +262,10 @@ def deduplicate_peaks_valleys(df: pd.DataFrame) -> pd.DataFrame:
         low_points['is_peak'] = 0  # 0表示谷（低点）
         low_points['price'] = low_points['log_low']  # 使用对数价格
         
-        # 合并所有HL点
+        # 合并所有HL点，保留原始列
         all_points = pd.concat([
-            high_points[['timestamp', 'price', 'is_peak']],
-            low_points[['timestamp', 'price', 'is_peak']]
+            high_points[['timestamp', 'price', 'is_peak', 'is_high', 'is_low', 'log_high', 'log_low', 'log_open', 'log_close', 'volume_zscore']],
+            low_points[['timestamp', 'price', 'is_peak', 'is_high', 'is_low', 'log_high', 'log_low', 'log_open', 'log_close', 'volume_zscore']]
         ], ignore_index=True)
         
         # 按时间排序
@@ -273,7 +273,7 @@ def deduplicate_peaks_valleys(df: pd.DataFrame) -> pd.DataFrame:
         
         if all_points.empty:
             logger.warning("合并后没有HL点")
-            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak'])
+            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak', 'is_high', 'is_low', 'log_high', 'log_low', 'log_open', 'log_close', 'volume_zscore'])
         
         # 去重逻辑：处理连续的相同类型点
         result_points = []
@@ -309,7 +309,7 @@ def deduplicate_peaks_valleys(df: pd.DataFrame) -> pd.DataFrame:
         # 转换为DataFrame
         if not result_points:
             logger.warning("去重后没有峰谷点")
-            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak'])
+            return pd.DataFrame(columns=['timestamp', 'price', 'is_peak', 'is_high', 'is_low', 'log_high', 'log_low', 'log_open', 'log_close', 'volume_zscore'])
         
         result_df = pd.DataFrame(result_points)
         

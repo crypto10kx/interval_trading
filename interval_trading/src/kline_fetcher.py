@@ -150,6 +150,15 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
             'rateLimit': 50     # 50ms间隔
         })
         
+        # 快速校验交易对是否存在于期货/合约市场，避免因错误交易对导致反复重试卡顿
+        try:
+            markets = exchange.load_markets()
+            if symbol not in markets:
+                raise ValueError(f"交易所不存在该交易对: {symbol}")
+        except Exception as e:
+            logger.error(f"交易对可用性检查失败: {e}")
+            raise
+        
         # 转换日期为时间戳
         start_ts = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp() * 1000)
         end_ts = int(datetime.strptime(end_date, '%Y-%m-%d').timestamp() * 1000)
@@ -160,6 +169,8 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
         current_ts = start_ts
         batch_count = 0
         
+        # 连续空批次计数：避免长时间空拉取造成卡顿
+        consecutive_empty_batches = 0
         while current_ts <= end_ts:
             retry_count = 0
             batch_success = False
@@ -178,8 +189,19 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
                     )
                     
                     if not batch:
-                        logger.warning(f"第 {batch_count} 批数据为空，停止拉取")
-                        break
+                        logger.warning(f"第 {batch_count} 批数据为空")
+                        consecutive_empty_batches += 1
+                        # 连续空批次达到3次，提前结束，避免卡顿
+                        if consecutive_empty_batches >= 3:
+                            logger.warning("连续空批次达到3次，提前停止该交易对的数据拉取")
+                            # 强制结束外层循环
+                            current_ts = end_ts + 1
+                            batch_success = True
+                            break
+                        else:
+                            # 小等待后继续尝试下一批
+                            time.sleep(max(request_interval, 0.05))
+                            break
                     
                     # 过滤超出结束时间的数据
                     filtered_batch = [kline for kline in batch if kline[0] <= end_ts]
@@ -191,6 +213,7 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
                     logger.info(f"第 {batch_count} 批完成，获取 {len(filtered_batch)} 条数据，总数据量: {len(all_data)}")
                     
                     batch_success = True
+                    consecutive_empty_batches = 0
                     
                     # 如果最后一批数据的时间戳已经达到或超过结束时间，停止
                     if batch[-1][0] >= end_ts:
@@ -199,11 +222,18 @@ def fetch_kline_data(symbol: str, start_date: str, end_date: str,
                 except Exception as e:
                     retry_count += 1
                     logger.error(f"拉取第 {batch_count} 批数据失败 (重试 {retry_count}/{max_retries}): {e}")
+                    # 若为交易对不存在/无市场错误，立即跳出并跳过该交易对，避免卡顿
+                    if "does not have market symbol" in str(e) or "market symbol" in str(e):
+                        logger.error(f"检测到交易对无效/不存在市场: {symbol}，跳过该交易对")
+                        # 终止该交易对的拉取
+                        current_ts = end_ts + 1
+                        batch_success = True
+                        break
                     
                     if retry_count < max_retries:
-                        # 异常重试间隔5秒
-                        logger.info(f"等待5秒后重试...")
-                        time.sleep(5)
+                        # 异常重试间隔1秒（减少等待时间）
+                        logger.info(f"等待1秒后重试...")
+                        time.sleep(1)
                     else:
                         logger.error(f"第 {batch_count} 批数据拉取失败，已达到最大重试次数")
                         # 跳过这一批，继续下一批

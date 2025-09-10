@@ -94,14 +94,20 @@ def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
             logger.warning(f"数据长度({len(df)})小于ATR周期({period})，将使用可用数据计算")
             period = len(df)
         
-        # 检查必要列
-        required_columns = ['high', 'low', 'close']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise ValueError(f"缺少必要列: {missing_columns}")
-        
-        # 添加对数价格列
-        result_df = add_log_prices(df)
+        # 检查必要列（优先使用对数价格列）
+        if 'log_high' in df.columns and 'log_low' in df.columns and 'log_close' in df.columns:
+            # 如果已有对数价格列，直接使用
+            result_df = df.copy()
+            logger.info("使用现有的对数价格列计算ATR")
+        else:
+            # 检查原始价格列
+            required_columns = ['high', 'low', 'close']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise ValueError(f"缺少必要列: {missing_columns}")
+            
+            # 添加对数价格列
+            result_df = add_log_prices(df)
         
         # 计算TR（基于对数价格）
         logger.info(f"开始计算TR，数据点数量: {len(result_df)}")
