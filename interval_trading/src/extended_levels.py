@@ -26,9 +26,9 @@ def calculate_extended_levels(df: pd.DataFrame,
                             key_1_col: str = 'key_1', 
                             key_0_col: str = 'key_0') -> pd.DataFrame:
     """
-    计算扩展价位
+    计算扩展价位（基于对数空间的斐波那契比例）
     
-    基于key_1和key_0计算4个扩展价位：
+    基于key_1和key_0计算4个扩展价位（在对数空间中）：
     - level_-2: key_0 - 2*(key_1 - key_0)  # 向下扩展2倍
     - level_-1: key_0 - (key_1 - key_0)    # 向下扩展1倍  
     - level_2: key_1 + (key_1 - key_0)     # 向上扩展1倍
@@ -46,7 +46,7 @@ def calculate_extended_levels(df: pd.DataFrame,
         ValueError: 当输入数据无效时
         KeyError: 当缺少必需列时
     """
-    logger.info("开始计算扩展价位")
+    logger.info("开始计算扩展价位（对数空间）")
     
     # 输入验证
     if df.empty:
@@ -62,25 +62,25 @@ def calculate_extended_levels(df: pd.DataFrame,
     # 创建结果DataFrame的副本
     result_df = df.copy()
     
-    # 获取key_1和key_0列
+    # 获取key_1和key_0列（应该是对数价格）
     key_1 = df[key_1_col]
     key_0 = df[key_0_col]
     
-    # 计算价格差 (key_1 - key_0)
-    price_diff = key_1 - key_0
+    # 计算对数价格差 (key_1 - key_0)
+    log_price_diff = key_1 - key_0
     
-    # 计算扩展价位（向量化操作）
+    # 计算扩展价位（在对数空间中，向量化操作）
     # level_-2 = key_0 - 2*(key_1 - key_0)
-    result_df['level_-2'] = key_0 - 2 * price_diff
+    result_df['level_-2'] = key_0 - 2 * log_price_diff
     
     # level_-1 = key_0 - (key_1 - key_0)  
-    result_df['level_-1'] = key_0 - price_diff
+    result_df['level_-1'] = key_0 - log_price_diff
     
     # level_2 = key_1 + (key_1 - key_0)
-    result_df['level_2'] = key_1 + price_diff
+    result_df['level_2'] = key_1 + log_price_diff
     
     # level_3 = key_1 + 2*(key_1 - key_0)
-    result_df['level_3'] = key_1 + 2 * price_diff
+    result_df['level_3'] = key_1 + 2 * log_price_diff
     
     # 统计有效扩展价位数量
     valid_levels = result_df[['level_-2', 'level_-1', 'level_2', 'level_3']].notna().sum()
@@ -175,18 +175,18 @@ def process_key_levels_data(input_file: str, output_file: str) -> None:
             logger.warning("数据中缺少key_1或key_0标记，跳过扩展价位计算")
             return
         
-        # 获取key_1和key_0的价格
-        key_1_price = df.loc[key_1_mask, 'high'].iloc[0] if key_1_mask.any() else None
-        key_0_price = df.loc[key_0_mask, 'low'].iloc[0] if key_0_mask.any() else None
+        # 获取key_1和key_0的对数价格
+        key_1_log_price = df.loc[key_1_mask, 'log_high'].iloc[0] if key_1_mask.any() else None
+        key_0_log_price = df.loc[key_0_mask, 'log_low'].iloc[0] if key_0_mask.any() else None
         
-        if key_1_price is None or key_0_price is None:
-            logger.warning("无法获取key_1或key_0价格，跳过扩展价位计算")
+        if key_1_log_price is None or key_0_log_price is None:
+            logger.warning("无法获取key_1或key_0对数价格，跳过扩展价位计算")
             return
         
-        # 创建包含key_1和key_0列的DataFrame
+        # 创建包含key_1和key_0列的DataFrame（使用对数价格）
         df_with_keys = df.copy()
-        df_with_keys['key_1'] = key_1_price
-        df_with_keys['key_0'] = key_0_price
+        df_with_keys['key_1'] = key_1_log_price
+        df_with_keys['key_0'] = key_0_log_price
         
         # 计算扩展价位
         result_df = calculate_extended_levels(df_with_keys)

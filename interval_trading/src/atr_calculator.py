@@ -15,26 +15,51 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def calculate_tr(df: pd.DataFrame) -> pd.Series:
+def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
     """
-    计算True Range (TR)
-    
-    TR = max(high-low, |high-close_prev|, |low-close_prev|)
+    添加对数价格列（避免log(0)或负值）
     
     Args:
-        df: 包含high, low, close列的DataFrame
+        df: K线数据DataFrame，必须包含['high', 'low', 'open', 'close']列
+        
+    Returns:
+        添加了log_high, log_low, log_open, log_close列的DataFrame
+    """
+    logger.info("开始添加对数价格列")
+    
+    # 创建结果DataFrame的副本
+    result_df = df.copy()
+    
+    # 添加对数价格列，使用clip避免log(0)或负值
+    result_df['log_high'] = np.log(df['high'].clip(lower=1e-6))
+    result_df['log_low'] = np.log(df['low'].clip(lower=1e-6))
+    result_df['log_open'] = np.log(df['open'].clip(lower=1e-6))
+    result_df['log_close'] = np.log(df['close'].clip(lower=1e-6))
+    
+    logger.info("✓ 对数价格列添加完成")
+    return result_df
+
+
+def calculate_tr(df: pd.DataFrame) -> pd.Series:
+    """
+    计算True Range (TR) - 基于对数价格
+    
+    TR = max(log_high-log_low, |log_high-log_close_prev|, |log_low-log_close_prev|)
+    
+    Args:
+        df: 包含log_high, log_low, log_close列的DataFrame
         
     Returns:
         包含TR值的Series
     """
     try:
-        # 计算前一日收盘价
-        close_prev = df['close'].shift(1)
+        # 计算前一日收盘价（对数）
+        log_close_prev = df['log_close'].shift(1)
         
-        # 计算三个TR组成部分
-        hl = df['high'] - df['low']  # 最高价 - 最低价
-        hc = abs(df['high'] - close_prev)  # |最高价 - 前收盘价|
-        lc = abs(df['low'] - close_prev)   # |最低价 - 前收盘价|
+        # 计算三个TR组成部分（在对数空间中）
+        hl = df['log_high'] - df['log_low']  # 最高价 - 最低价
+        hc = abs(df['log_high'] - log_close_prev)  # |最高价 - 前收盘价|
+        lc = abs(df['log_low'] - log_close_prev)   # |最低价 - 前收盘价|
         
         # 取三者最大值作为TR
         tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
@@ -49,7 +74,7 @@ def calculate_tr(df: pd.DataFrame) -> pd.Series:
 
 def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
     """
-    计算ATR (Average True Range)
+    计算ATR (Average True Range) - 基于对数价格
     
     ATR = TR的period周期移动平均
     
@@ -75,12 +100,12 @@ def calculate_atr(df: pd.DataFrame, period: int = 120) -> pd.DataFrame:
         if missing_columns:
             raise ValueError(f"缺少必要列: {missing_columns}")
         
-        # 创建DataFrame副本避免修改原数据
-        result_df = df.copy()
+        # 添加对数价格列
+        result_df = add_log_prices(df)
         
-        # 计算TR
-        logger.info(f"开始计算TR，数据点数量: {len(df)}")
-        tr = calculate_tr(df)
+        # 计算TR（基于对数价格）
+        logger.info(f"开始计算TR，数据点数量: {len(result_df)}")
+        tr = calculate_tr(result_df)
         
         # 计算ATR (TR的period周期移动平均)
         logger.info(f"开始计算ATR，周期: {period}")

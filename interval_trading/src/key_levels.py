@@ -14,9 +14,34 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    添加对数价格列（避免log(0)或负值）
+    
+    Args:
+        df: K线数据DataFrame，必须包含['high', 'low', 'open', 'close']列
+        
+    Returns:
+        添加了log_high, log_low, log_open, log_close列的DataFrame
+    """
+    logger.info("开始添加对数价格列")
+    
+    # 创建结果DataFrame的副本
+    result_df = df.copy()
+    
+    # 添加对数价格列，使用clip避免log(0)或负值
+    result_df['log_high'] = np.log(df['high'].clip(lower=1e-6))
+    result_df['log_low'] = np.log(df['low'].clip(lower=1e-6))
+    result_df['log_open'] = np.log(df['open'].clip(lower=1e-6))
+    result_df['log_close'] = np.log(df['close'].clip(lower=1e-6))
+    
+    logger.info("✓ 对数价格列添加完成")
+    return result_df
+
+
 def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
     """
-    筛选关键价位key_1/key_0
+    筛选关键价位key_1/key_0（基于对数价格）
     
     从吸引力得分DataFrame筛选得分>=threshold的点，取最高两个，标记为key_1（较高）、key_0（较低）
     验证(key_1-key_0)>ATR（使用w根K线中最后一根的ATR）
@@ -39,8 +64,8 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
         if missing_columns:
             raise ValueError(f"缺少必要列: {missing_columns}")
         
-        # 创建DataFrame副本避免修改原数据
-        result_df = df.copy()
+        # 添加对数价格列
+        result_df = add_log_prices(df)
         
         logger.info(f"开始筛选关键价位，阈值: {threshold}")
         
@@ -55,18 +80,18 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
         # 按得分降序排序，取前两个
         top_points = qualified_points.nlargest(2, 'attraction_score')
         
-        # 确定key_1和key_0
+        # 确定key_1和key_0（基于对数价格）
         if len(top_points) == 2:
-            # 比较价格确定key_1（较高）和key_0（较低）
-            point1_high = top_points.iloc[0]['high']
-            point1_low = top_points.iloc[0]['low']
-            point1_max_price = max(point1_high, point1_low)
+            # 比较对数价格确定key_1（较高）和key_0（较低）
+            point1_log_high = top_points.iloc[0]['log_high']
+            point1_log_low = top_points.iloc[0]['log_low']
+            point1_max_log_price = max(point1_log_high, point1_log_low)
             
-            point2_high = top_points.iloc[1]['high']
-            point2_low = top_points.iloc[1]['low']
-            point2_max_price = max(point2_high, point2_low)
+            point2_log_high = top_points.iloc[1]['log_high']
+            point2_log_low = top_points.iloc[1]['log_low']
+            point2_max_log_price = max(point2_log_high, point2_log_low)
             
-            if point1_max_price >= point2_max_price:
+            if point1_max_log_price >= point2_max_log_price:
                 key_1_idx = top_points.iloc[0].name
                 key_0_idx = top_points.iloc[1].name
             else:
@@ -78,34 +103,47 @@ def filter_key_levels(df: pd.DataFrame, threshold: float = 0.1) -> pd.DataFrame:
             result_df['key_level'] = pd.Series(dtype='object')
             return result_df
         
-        # 获取key_1和key_0的价格
-        key_1_high = result_df.loc[key_1_idx, 'high']
-        key_1_low = result_df.loc[key_1_idx, 'low']
-        key_1_price = max(key_1_high, key_1_low)
+        # 获取key_1和key_0的对数价格
+        key_1_log_high = result_df.loc[key_1_idx, 'log_high']
+        key_1_log_low = result_df.loc[key_1_idx, 'log_low']
+        key_1_log_price = max(key_1_log_high, key_1_log_low)
         
-        key_0_high = result_df.loc[key_0_idx, 'high']
-        key_0_low = result_df.loc[key_0_idx, 'low']
-        key_0_price = max(key_0_high, key_0_low)
+        key_0_log_high = result_df.loc[key_0_idx, 'log_high']
+        key_0_log_low = result_df.loc[key_0_idx, 'log_low']
+        key_0_log_price = max(key_0_log_high, key_0_log_low)
         
-        # 获取最后一根K线的ATR进行验证
+        # 获取最后一根K线的ATR进行验证（基于对数价格）
         last_atr = result_df['atr'].iloc[-1]
         
-        # 验证(key_1-key_0)>ATR
-        price_diff = key_1_price - key_0_price
+        # 验证(key_1-key_0)>ATR（在对数空间中）
+        log_price_diff = key_1_log_price - key_0_log_price
         
-        if price_diff > last_atr:
+        if log_price_diff > last_atr:
             # 验证通过，设置关键价位
             result_df['key_level'] = pd.Series(dtype='object')
             result_df.loc[key_1_idx, 'key_level'] = 'key_1'
             result_df.loc[key_0_idx, 'key_level'] = 'key_0'
+            
+            # 添加log_key_1和log_key_0列
+            result_df['log_key_1'] = np.nan
+            result_df['log_key_0'] = np.nan
+            result_df.loc[key_1_idx, 'log_key_1'] = key_1_log_price
+            result_df.loc[key_0_idx, 'log_key_0'] = key_0_log_price
+            
+            # 转换回真实价格用于日志显示
+            key_1_price = np.exp(key_1_log_price)
+            key_0_price = np.exp(key_0_log_price)
+            price_diff = key_1_price - key_0_price
             
             logger.info(f"关键价位筛选成功:")
             logger.info(f"- key_1: 价格 {key_1_price:.6f}, 得分 {result_df.loc[key_1_idx, 'attraction_score']:.6f}")
             logger.info(f"- key_0: 价格 {key_0_price:.6f}, 得分 {result_df.loc[key_0_idx, 'attraction_score']:.6f}")
             logger.info(f"- 价格差: {price_diff:.6f} > ATR: {last_atr:.6f}")
         else:
-            logger.warning(f"价格差验证失败: {price_diff:.6f} <= ATR: {last_atr:.6f}")
+            logger.warning(f"价格差验证失败: {log_price_diff:.6f} <= ATR: {last_atr:.6f}")
             result_df['key_level'] = pd.Series(dtype='object')
+            result_df['log_key_1'] = np.nan
+            result_df['log_key_0'] = np.nan
         
         # 统计信息
         key_levels = result_df['key_level'].dropna()

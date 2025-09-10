@@ -13,9 +13,34 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    添加对数价格列（避免log(0)或负值）
+    
+    Args:
+        df: K线数据DataFrame，必须包含['high', 'low', 'open', 'close']列
+        
+    Returns:
+        添加了log_high, log_low, log_open, log_close列的DataFrame
+    """
+    logger.info("开始添加对数价格列")
+    
+    # 创建结果DataFrame的副本
+    result_df = df.copy()
+    
+    # 添加对数价格列，使用clip避免log(0)或负值
+    result_df['log_high'] = np.log(df['high'].clip(lower=1e-6))
+    result_df['log_low'] = np.log(df['low'].clip(lower=1e-6))
+    result_df['log_open'] = np.log(df['open'].clip(lower=1e-6))
+    result_df['log_close'] = np.log(df['close'].clip(lower=1e-6))
+    
+    logger.info("✓ 对数价格列添加完成")
+    return result_df
+
+
 def identify_high_low_points(df: pd.DataFrame, g: int = 3) -> pd.DataFrame:
     """
-    识别K线数据中的摆动高点H和低点L
+    识别K线数据中的摆动高点H和低点L（基于对数价格）
     
     Args:
         df: K线数据DataFrame，必须包含['high', 'low']列
@@ -35,8 +60,8 @@ def identify_high_low_points(df: pd.DataFrame, g: int = 3) -> pd.DataFrame:
         
         logger.info(f"开始识别HL点，数据量: {len(df)} 条，g={g}")
         
-        # 创建结果DataFrame的副本
-        result_df = df.copy()
+        # 添加对数价格列
+        result_df = add_log_prices(df)
         
         # 初始化HL标记列
         result_df['is_high'] = 0
@@ -50,28 +75,28 @@ def identify_high_low_points(df: pd.DataFrame, g: int = 3) -> pd.DataFrame:
             logger.warning(f"数据量不足，需要至少{window_size}条记录")
             return result_df
         
-        # 使用rolling窗口识别高点
+        # 使用rolling窗口识别高点（基于对数价格）
         # 高点：当前K线的高点高于前后g根K线的高点
-        high_rolling_max = result_df['high'].rolling(window=window_size, center=True)
+        high_rolling_max = result_df['log_high'].rolling(window=window_size, center=True)
         high_max_values = high_rolling_max.max()
         
         # 标记高点：当前高点等于窗口内最大值，且不是边界值
         is_high_condition = (
-            (result_df['high'] == high_max_values) &  # 当前高点等于窗口最大值
-            (result_df['high'] > result_df['high'].shift(g)) &  # 高于前g根K线
-            (result_df['high'] > result_df['high'].shift(-g))   # 高于后g根K线
+            (result_df['log_high'] == high_max_values) &  # 当前高点等于窗口最大值
+            (result_df['log_high'] > result_df['log_high'].shift(g)) &  # 高于前g根K线
+            (result_df['log_high'] > result_df['log_high'].shift(-g))   # 高于后g根K线
         )
         
-        # 使用rolling窗口识别低点
+        # 使用rolling窗口识别低点（基于对数价格）
         # 低点：当前K线的低点低于前后g根K线的低点
-        low_rolling_min = result_df['low'].rolling(window=window_size, center=True)
+        low_rolling_min = result_df['log_low'].rolling(window=window_size, center=True)
         low_min_values = low_rolling_min.min()
         
         # 标记低点：当前低点等于窗口内最小值，且不是边界值
         is_low_condition = (
-            (result_df['low'] == low_min_values) &  # 当前低点等于窗口最小值
-            (result_df['low'] < result_df['low'].shift(g)) &  # 低于前g根K线
-            (result_df['low'] < result_df['low'].shift(-g))   # 低于后g根K线
+            (result_df['log_low'] == low_min_values) &  # 当前低点等于窗口最小值
+            (result_df['log_low'] < result_df['log_low'].shift(g)) &  # 低于前g根K线
+            (result_df['log_low'] < result_df['log_low'].shift(-g))   # 低于后g根K线
         )
         
         # 应用条件标记
@@ -224,13 +249,13 @@ def deduplicate_peaks_valleys(df: pd.DataFrame) -> pd.DataFrame:
             logger.warning("没有找到任何HL点")
             return pd.DataFrame(columns=['timestamp', 'price', 'is_peak'])
         
-        # 为高点添加标记
+        # 为高点添加标记（使用对数价格）
         high_points['is_peak'] = 1  # 1表示峰（高点）
-        high_points['price'] = high_points['high']
+        high_points['price'] = high_points['log_high']  # 使用对数价格
         
-        # 为低点添加标记
+        # 为低点添加标记（使用对数价格）
         low_points['is_peak'] = 0  # 0表示谷（低点）
-        low_points['price'] = low_points['low']
+        low_points['price'] = low_points['log_low']  # 使用对数价格
         
         # 合并所有HL点
         all_points = pd.concat([
@@ -399,8 +424,8 @@ def validate_peak_valley_sequence(df: pd.DataFrame) -> bool:
                     logger.error(f"峰谷序列不交错，位置 {i} 和 {i+1} 类型相同")
                     return False
         
-        # 检查价格合理性
-        if df['price'].isna().any() or (df['price'] <= 0).any():
+        # 检查价格合理性（对数价格可以为负值）
+        if df['price'].isna().any():
             logger.error("峰谷序列包含无效价格")
             return False
         

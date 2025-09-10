@@ -14,10 +14,35 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def add_log_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    添加对数价格列（避免log(0)或负值）
+    
+    Args:
+        df: K线数据DataFrame，必须包含['high', 'low', 'open', 'close']列
+        
+    Returns:
+        添加了log_high, log_low, log_open, log_close列的DataFrame
+    """
+    logger.info("开始添加对数价格列")
+    
+    # 创建结果DataFrame的副本
+    result_df = df.copy()
+    
+    # 添加对数价格列，使用clip避免log(0)或负值
+    result_df['log_high'] = np.log(df['high'].clip(lower=1e-6))
+    result_df['log_low'] = np.log(df['low'].clip(lower=1e-6))
+    result_df['log_open'] = np.log(df['open'].clip(lower=1e-6))
+    result_df['log_close'] = np.log(df['close'].clip(lower=1e-6))
+    
+    logger.info("✓ 对数价格列添加完成")
+    return result_df
+
+
 def calculate_attraction_score(df: pd.DataFrame, w: int = 120, 
                              band_width: float = 0.1) -> pd.DataFrame:
     """
-    计算吸引力得分
+    计算吸引力得分（基于对数价格）
     
     对每个high_n/low_n，统计w-1根K线的高低点在[price-band_width*ATR, price+band_width*ATR]内
     得分公式：score=exp(-|price-target_price|/ATR)，总分/w，范围[0,1]
@@ -46,19 +71,19 @@ def calculate_attraction_score(df: pd.DataFrame, w: int = 120,
         if missing_columns:
             raise ValueError(f"缺少必要列: {missing_columns}")
         
-        # 创建DataFrame副本避免修改原数据
-        result_df = df.copy()
+        # 添加对数价格列
+        result_df = add_log_prices(df)
         
         logger.info(f"开始计算吸引力得分，窗口大小: {w}, 带宽系数: {band_width}")
         
         # 初始化吸引力得分列
         result_df['attraction_score'] = 0.0
         
-        # 使用向量化方法计算吸引力得分
+        # 使用向量化方法计算吸引力得分（基于对数价格）
         attraction_scores = _calculate_attraction_scores_vectorized(
-            df['high'].values, 
-            df['low'].values, 
-            df['atr'].values, 
+            result_df['log_high'].values, 
+            result_df['log_low'].values, 
+            result_df['atr'].values, 
             w, 
             band_width
         )
@@ -154,13 +179,12 @@ def _calculate_attraction_scores_fully_vectorized(target_prices: np.ndarray,
     
     # 外部for循环：遍历每个K线
     for i in range(n):
-        if i < w - 1:
-            window_size = i + 1
-        else:
-            window_size = w
-        
-        start_idx = max(0, i - window_size + 1)
+        # 计算窗口范围：[i-w+1, i]，确保窗口大小始终为w
+        start_idx = max(0, i - w + 1)
         end_idx = i + 1
+        
+        # 实际窗口大小
+        window_size = end_idx - start_idx
         
         # 获取当前窗口内的数据
         window_high = all_high[start_idx:end_idx]
@@ -178,8 +202,10 @@ def _calculate_attraction_scores_fully_vectorized(target_prices: np.ndarray,
         
         # 创建掩码：排除当前K线（向量化）
         mask = np.ones(len(window_high), dtype=bool)
-        if i >= start_idx and i < end_idx:
-            mask[i - start_idx] = False
+        # 排除当前K线（当前K线在窗口中的相对位置）
+        current_relative_idx = i - start_idx
+        if 0 <= current_relative_idx < len(window_high):
+            mask[current_relative_idx] = False
         
         # 应用掩码（向量化）
         window_high_masked = window_high[mask]
