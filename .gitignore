@@ -84,6 +84,14 @@ tests/
 # 排除模型文件
 models/
 
+# 排除临时脚本文件
+debug_*.py
+test_single_symbol.py
+run_task_*.py
+test_*.py
+*_download.py
+*_performance.py
+
 # Additional Python ignores
 *.manifest
 *.spec
